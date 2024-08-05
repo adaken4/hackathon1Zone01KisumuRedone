@@ -14,6 +14,10 @@ func HashPassword(password string) (string, error) {
 	return string(bytes), err
 }
 
+func CompareHashAndPassword(hashedPassword, password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+}
+
 func GenerateJWT(email string) (string, error) {
 	var user models.User
 
