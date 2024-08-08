@@ -15,6 +15,9 @@ func main() {
 	frontendDir := filepath.Join("..", "frontend")
 	cssDir := filepath.Join(frontendDir, "css")
 	r.PathPrefix("/css/").Handler(http.StripPrefix("/css/", http.FileServer(http.Dir(cssDir))))
+	// Serve static files
+	jsDir := filepath.Join(frontendDir, "js")
+	r.PathPrefix("/js/").Handler(http.StripPrefix("/js/", http.FileServer(http.Dir(jsDir))))
 
 	routes.RegisterRoutes(r)
 
