@@ -1,73 +1,22 @@
 package controllers
 
 import (
-	"fmt"
+	"context"
 	"net/http"
+	"time"
 
-	"github.com/adaken4/peerfund-p2p-lending/backend/models"
 	"github.com/adaken4/peerfund-p2p-lending/backend/store"
-	"github.com/adaken4/peerfund-p2p-lending/backend/utils"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// func RegisterUser(w http.ResponseWriter, r *http.Request) {
-// 	var user models.User
-// 	err := json.NewDecoder(r.Body).Decode(&user)
-// 	if err != nil {
-// 		http.Error(w, "Invalid input", http.StatusBadRequest)
-// 		return
-// 	}
+// Define a secret key for signing the JWT
+var jwtKey = []byte("xkUbdz6r$")
 
-// 	hashedPassword, err := utils.HashPassword(user.Password)
-// 	if err != nil {
-// 		http.Error(w, "Error hashing password", http.StatusInternalServerError)
-// 		return
-// 	}
-// 	user.Password = hashedPassword
-
-// 	w.WriteHeader(http.StatusCreated)
-// 	json.NewEncoder(w).Encode(user)
-// }
-
-func RegisterUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	// Parse the form data
-	err := r.ParseForm()
-	if err != nil {
-		http.Error(w, "Error parsing form", http.StatusBadRequest)
-		return
-	}
-
-	// Extract form values
-	email := r.FormValue("email")
-	password := r.FormValue("psw")
-
-	fmt.Println(r.Form)
-	// Hash the password
-	hashedPassword, err := utils.HashPassword(password)
-	if err != nil {
-		http.Error(w, "Error processing password", http.StatusInternalServerError)
-		return
-	}
-
-	// Create user object
-	user := models.User{
-		Email:    email,
-		Password: hashedPassword,
-	}
-	fmt.Println(user)
-
-	// Store user in the in-memory map
-	store.AddUser(user)
-
-	// Here you would typically save the user to the database
-	// For now, we'll just simulate a successful registration
-
-	// Redirect to a success page or login page
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+// Create a struct to represent the claims
+type Claims struct {
+	Email string `json:"email"`
+	jwt.RegisteredClaims
 }
 
 // func LoginUser(w http.ResponseWriter, r *http.Request) {
@@ -103,7 +52,8 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 
 	user, exists := store.GetUser(email)
 	if !exists {
-		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		// Redirect to the registration page if the user does not exist
+		http.Redirect(w, r, "/register", http.StatusSeeOther)
 		return
 	}
 
@@ -114,6 +64,54 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Successful login logic (e.g., set session, redirect, etc.)
+	// Create the token
+	expirationTime := time.Now().Add(5 * time.Minute) // Token expiration time
+	claims := &Claims{
+		Email: email,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expirationTime),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(jwtKey)
+	if err != nil {
+		http.Error(w, "Could not create token", http.StatusInternalServerError)
+		return
+	}
+
+	// Set the token in a cookie (optional)
+	http.SetCookie(w, &http.Cookie{
+		Name:    "token",
+		Value:   tokenString,
+		Expires: expirationTime,
+	})
+
+	// Redirect or respond with success
 	http.Redirect(w, r, "/welcome", http.StatusSeeOther)
+}
+
+// Middleware to validate JWT
+func ValidateToken(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenStr, err := r.Cookie("token")
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		claims := &Claims{}
+		token, err := jwt.ParseWithClaims(tokenStr.Value, claims, func(token *jwt.Token) (interface{}, error) {
+			return jwtKey, nil
+		})
+
+		if err != nil || !token.Valid {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Set the email in the context for use in the next handler
+		ctx := context.WithValue(r.Context(), "email", claims.Email)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
